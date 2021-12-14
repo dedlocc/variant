@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <exception>
 #include <string>
+#include <vector>
 
 template <class... Ts>
 struct overload : Ts... {
@@ -221,7 +222,7 @@ struct broken_address {
   broken_address const* operator&() const { // NOLINT(google-runtime-operator)
     return nullptr;
   }
-  int x{123}; // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+  std::vector<int> x;
 };
 
 struct empty_comparable {
