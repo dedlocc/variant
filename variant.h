@@ -218,11 +218,10 @@ union variant_union
 template <typename First, typename... Rest>
 union variant_union<First, Rest...>
 {
-    char dummy;
     trivially_destructible_wrapper<First> first;
     variant_union<Rest...> rest;
 
-    constexpr variant_union() : dummy()
+    constexpr variant_union() : rest()
     {}
 
     constexpr ~variant_union() = default;
