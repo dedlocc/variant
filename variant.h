@@ -87,8 +87,8 @@ template <typename T, typename Variant>
 struct exactly_one : std::false_type
 {};
 
-template <typename T, typename First, typename... Rest> requires std::same_as<T, First>
-struct exactly_one<T, variant<First, Rest...>> : std::bool_constant<find_index_v<T, variant<Rest...>> == sizeof...(Rest)>
+template <typename First, typename... Rest>
+struct exactly_one<First, variant<First, Rest...>> : std::bool_constant<find_index_v<First, variant<Rest...>> == sizeof...(Rest)>
 {};
 
 template <typename T, typename First, typename... Rest>
