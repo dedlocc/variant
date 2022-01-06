@@ -490,7 +490,7 @@ private:
 
 public:
     constexpr variant() noexcept(std::is_nothrow_default_constructible_v<variant_alternative_t<0, variant>>)
-    requires (std::is_default_constructible_v<Types> && ...)
+    requires (std::is_default_constructible_v<detail::type_by_index<0, variant>>)
         : Base(in_place_index<0>)
     {}
 
