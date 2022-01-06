@@ -671,19 +671,19 @@ public:
     template <typename T>
     friend constexpr T &&get(variant &&v)
     {
-        return get<detail::find_index_v<T, variant>>(v);
+        return std::move(get<T>(v));
     }
 
     template <typename T>
     friend constexpr T const &get(variant const &v)
     {
-        return get<detail::find_index_v<T, variant>>(v);
+        return get<T>(const_cast<variant &>(v));
     }
 
     template <typename T>
     friend constexpr T const &&get(variant const &&v)
     {
-        return get<detail::find_index_v<T, variant>>(v);
+        return std::move(get<T>(v));
     }
 
     template <std::size_t I>
@@ -698,28 +698,19 @@ public:
     template <std::size_t I>
     friend constexpr variant_alternative_t<I, variant> &&get(variant &&v)
     {
-        if (v.index() == I) {
-            return std::move(v._storage.get(in_place_index<I>));
-        }
-        throw bad_variant_access();
+        return std::move(get<I>(v));
     }
 
     template <std::size_t I>
     friend constexpr variant_alternative_t<I, variant> const &get(variant const &v)
     {
-        if (v.index() == I) {
-            return v._storage.get(in_place_index<I>);
-        }
-        throw bad_variant_access();
+        return get<I>(const_cast<variant &>(v));
     }
 
     template <std::size_t I>
     friend constexpr variant_alternative_t<I, variant> const &&get(variant const &&v)
     {
-        if (v.index() == I) {
-            return std::move(v._storage.get(in_place_index<I>));
-        }
-        throw bad_variant_access();
+        return std::move(get<I>(v));
     }
 
     template <typename T>
@@ -743,7 +734,7 @@ public:
     template <std::size_t I>
     friend constexpr std::add_pointer_t<const variant_alternative_t<I, variant>> get_if(variant const *pv) noexcept
     {
-        return pv && pv->index() == I ? std::addressof(pv->_storage.get(in_place_index<I>)) : nullptr;
+        return get_if<I>(const_cast<variant *>(pv));
     }
 
     friend constexpr bool operator==(variant const &lhs, variant const &rhs)
