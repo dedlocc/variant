@@ -689,10 +689,7 @@ public:
     template <std::size_t I>
     friend constexpr variant_alternative_t<I, variant> &get(variant &v)
     {
-        if (v.index() == I) {
-            return v._storage.get(in_place_index<I>);
-        }
-        throw bad_variant_access();
+        return v.index() == I ? v._storage.get(in_place_index<I>) : throw bad_variant_access();
     }
 
     template <std::size_t I>
