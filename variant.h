@@ -130,13 +130,17 @@ namespace detail
 template <typename T>
 using arr = T[1];
 
+template <typename T, typename Type>
+concept overload_is_considered = requires(T t)
+{
+    arr<Type> {{std::forward<T>(t)}};
+};
+
 template <typename T, typename Type, std::size_t I>
 struct overload
 {
-    static std::integral_constant<std::size_t, I> foo(Type) requires requires(T t)
-    {
-        arr<Type> {{std::forward<T>(t)}};
-    };
+    static std::integral_constant<std::size_t, I> foo(Type)
+    requires overload_is_considered<T, Type>;
 };
 
 template <typename Seq, typename T, typename... Ts>
@@ -154,10 +158,14 @@ using accepted_index = decltype(overloads<std::index_sequence_for<Types...>, T, 
 template <typename T, typename Variant>
 inline constexpr std::size_t accepted_index_v = variant_npos;
 
-template <typename T, typename... Types> requires requires
+template <typename T>
+concept valid_typename = requires
 {
-    typename accepted_index<T, Types...>;
-}
+    typename T;
+};
+
+template <typename T, typename... Types>
+requires valid_typename<accepted_index<T, Types...>>
 inline constexpr std::size_t accepted_index_v<T, variant<Types...>> = accepted_index<T, Types...>::value;
 
 template <typename T>
