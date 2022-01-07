@@ -249,14 +249,14 @@ union variant_union<First, Rest...>
         return rest.get(in_place_index<I - 1>);
     }
 
-    constexpr First &get(in_place_index_t<0>)
+    constexpr trivially_destructible_wrapper<First> &get(in_place_index_t<0>)
     {
-        return first.get();
+        return first;
     }
 
-    constexpr First const &get(in_place_index_t<0>) const
+    constexpr trivially_destructible_wrapper<First> const &get(in_place_index_t<0>) const
     {
-        return first.get();
+        return first;
     }
 };
 
@@ -575,7 +575,7 @@ public:
         noexcept(std::is_nothrow_assignable_v<Tj&, T> && std::is_nothrow_constructible_v<Tj, T>)
     {
         if (this->index() == I) {
-            this->_storage.get(in_place_index<I>) = std::forward<T>(t);
+            this->_storage.get(in_place_index<I>).get() = std::forward<T>(t);
         } else {
             emplace<I>(Tj(std::forward<T>(t)));
         }
@@ -594,13 +594,12 @@ public:
     constexpr variant_alternative_t<I, variant> &emplace(Args &&...args)
     {
         this->_destroy();
+        this->_index = variant_npos;
+
+        auto res = new (&this->_storage.get(in_place_index<I>)) detail::trivially_destructible_wrapper<T>(std::forward<Args>(args)...);
         this->_index = I;
-        try {
-            return *new(&this->_storage) T(std::forward<Args>(args)...);
-        } catch (...) {
-            this->_index = variant_npos;
-            throw;
-        }
+
+        return res->get();
     }
 
     constexpr void swap(variant &other)
@@ -659,7 +658,7 @@ public:
     template <std::size_t I>
     friend constexpr variant_alternative_t<I, variant> &get(variant &v)
     {
-        return v.index() == I ? v._storage.get(in_place_index<I>) : throw bad_variant_access();
+        return v.index() == I ? v._storage.get(in_place_index<I>).get() : throw bad_variant_access();
     }
 
     template <std::size_t I>
@@ -695,7 +694,7 @@ public:
     template <std::size_t I>
     friend constexpr std::add_pointer_t<variant_alternative_t<I, variant>> get_if(variant *pv) noexcept
     {
-        return pv && pv->index() == I ? std::addressof(pv->_storage.get(in_place_index<I>)) : nullptr;
+        return pv && pv->index() == I ? std::addressof(pv->_storage.get(in_place_index<I>).get()) : nullptr;
     }
 
     template <std::size_t I>
