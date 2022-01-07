@@ -260,100 +260,89 @@ union variant_union<First, Rest...>
     }
 };
 
-template <typename... Variants>
-struct visitor_size_product : std::integral_constant<std::size_t, 1>
-{};
-
-template <typename... Variants>
-inline constexpr std::size_t visitor_size_product_v = visitor_size_product<Variants...>::value;
-
-template <typename First, typename... Rest>
-struct visitor_size_product<First, Rest...>
-    : std::integral_constant<std::size_t, variant_size_v<std::remove_reference_t<First>> * visitor_size_product_v<Rest...>>
-{};
-
-template <typename... Variants>
-struct visitor_encode_index;
-
-template <typename... Variants>
-constexpr std::size_t visitor_encode_index_v(Variants &&...vars)
+template <typename T, std::size_t... Sizes>
+struct multiarray
 {
-    return visitor_encode_index<Variants...>::foo(std::forward<Variants>(vars)...);
-}
+    T t;
 
-template <typename Variant>
-struct visitor_encode_index<Variant>
-{
-    constexpr static std::size_t foo(Variant &&var)
+    constexpr T at() const noexcept
     {
-        return var.index();
+        return t;
     }
 };
 
-template <typename First, typename... Rest>
-struct visitor_encode_index<First, Rest...>
+template <typename T, std::size_t I, std::size_t... Sizes>
+struct multiarray<T, I, Sizes...>
 {
-    constexpr static std::size_t foo(First &&first, Rest &&...rest)
+    multiarray<T, Sizes...> arr[I], npos;
+
+    constexpr T at(std::size_t i0, auto... is) const noexcept
     {
-        return first.index() * visitor_size_product_v<Rest...> + visitor_encode_index_v(std::forward<Rest>(rest)...);
+        return (i0 == variant_npos ? npos : arr[i0]).at(is...);
     }
 };
 
-template <std::size_t I, std::size_t Skip, std::size_t... VariantSizes>
-struct visitor_decode_index;
-
-template <std::size_t I, std::size_t Skip, std::size_t First, std::size_t... Rest>
-struct visitor_decode_index<I, Skip, First, Rest...> : visitor_decode_index<I, Skip - 1, Rest...>
+template <std::size_t... Is>
+struct seq_first : std::type_identity<std::index_sequence<>>
 {};
 
-template <std::size_t I, std::size_t First, std::size_t... Rest>
-struct visitor_decode_index<I, 0, First, Rest...> : visitor_decode_index<I / First, 0, Rest...>
+template <typename Seq>
+struct seq_append_npos;
+
+template <std::size_t... Is>
+struct seq_append_npos<std::index_sequence<Is...>> : std::type_identity<std::index_sequence<Is..., variant_npos>>
 {};
 
-template <std::size_t I, std::size_t First>
-struct visitor_decode_index<I, 0, First> : std::integral_constant<std::size_t, I % First>
+template <std::size_t First, std::size_t... Rest>
+struct seq_first<First, Rest...> : seq_append_npos<std::make_index_sequence<First>>
 {};
 
-template <std::size_t I, std::size_t Skip, std::size_t... VariantSizes>
-inline constexpr std::size_t visitor_decode_index_v = visitor_decode_index<I, Skip, VariantSizes...>::value;
+template <std::size_t... Is>
+using seq_first_t = typename seq_first<Is...>::type;
 
-template <typename Visitor, typename... Variants>
-struct visit_result
-    : std::type_identity<std::invoke_result_t<Visitor, decltype(get<0>(std::declval<Variants>()))...>>
-{};
-
-template <typename Visitor, typename... Variants>
-using visit_result_t = typename visit_result<Visitor, Variants...>::type;
-
-template <std::size_t I, typename Seq, typename Visitor, typename... Variants>
-struct call_visit;
-
-template <std::size_t I, typename Visitor, typename... Variants, std::size_t... Is>
-struct call_visit<I, std::index_sequence<Is...>, Visitor, Variants...>
-{
-    static constexpr decltype(auto) foo(Visitor &&vis, Variants &&...vars)
-    {
-        return std::forward<Visitor>(vis)(get<visitor_decode_index_v<I, Is, visitor_size_product_v<Variants>...>>(std::forward<Variants>(vars))...);
-    }
-};
-
-template <typename Seq, typename Visitor, typename... Variants>
+template <typename Seq, typename Bound, typename Sizes, typename Foo>
 struct visitor_table;
 
-template <typename Visitor, typename... Variants, std::size_t... Is>
-struct visitor_table<std::index_sequence<Is...>, Visitor, Variants...>
+template <std::size_t... Is, std::size_t... Bound, std::size_t Size, std::size_t... Sizes, typename Foo>
+struct visitor_table<std::index_sequence<Is...>, std::index_sequence<Bound...>, std::index_sequence<Size, Sizes...>, Foo>
 {
-    constexpr static std::array<visit_result_t<Visitor, Variants...> (*)(Visitor &&, Variants &&...), sizeof...(Is)> table {
-        [](Visitor &&vis, Variants &&...vars) {
-            return call_visit<
-                Is,
-                std::make_index_sequence<sizeof...(Variants)>,
-                Visitor,
-                Variants...
-            >::foo(std::forward<Visitor>(vis), std::forward<Variants>(vars)...);
-        }...
+    static constexpr multiarray<Foo, Size, Sizes...> table() noexcept
+    {
+        return {
+            visitor_table<seq_first_t<Sizes...>, std::index_sequence<Bound..., Is>, std::index_sequence<Sizes...>, Foo>::table()...
+        };
     };
 };
+
+template <std::size_t... Bound, typename Result, typename Visitor>
+struct visitor_table<std::index_sequence<>, std::index_sequence<Bound...>, std::index_sequence<>, Result (*)(Visitor)>
+{
+    using Foo = Result (*)(Visitor);
+
+    static constexpr Foo table() noexcept
+    {
+        return [](Visitor vis) {
+            return std::forward<Visitor>(vis)(std::integral_constant<std::size_t, Bound>()...);
+        };
+    };
+};
+
+template <typename>
+inline constexpr std::size_t indifferent_zero = 0;
+
+template <typename Visitor, typename... Variants>
+inline constexpr auto visitor_table_instance = visitor_table<
+    seq_first_t<variant_size_v<std::remove_cvref_t<Variants>>...>,
+    std::index_sequence<>,
+    std::index_sequence<variant_size_v<std::remove_cvref_t<Variants>>...>,
+    std::invoke_result_t<Visitor, std::integral_constant<std::size_t, indifferent_zero<Variants>>...> (*)(Visitor)
+>::table();
+
+template <typename Visitor, typename... Variants>
+constexpr decltype(auto) visit_indexed(Visitor &&vis, Variants &&...vars)
+{
+    return visitor_table_instance<Visitor, Variants...>.at(vars.index()...)(std::forward<Visitor>(vis));
+}
 
 template <typename... Types>
 concept copy_constructible = (std::copy_constructible<Types> && ...);
@@ -468,12 +457,13 @@ struct variant_destructor_base<Types...> : variant_base<Types...>
 template <typename Visitor, typename... Variants>
 constexpr decltype(auto) visit(Visitor &&vis, Variants &&...vars)
 {
-    if ((vars.valueless_by_exception() || ...)) {
-        throw bad_variant_access();
-    }
-    using Seq = std::make_index_sequence<detail::visitor_size_product_v<Variants...>>;
-    std::size_t index = detail::visitor_encode_index_v(std::forward<Variants>(vars)...);
-    return detail::visitor_table<Seq, Visitor, Variants...>::table[index](std::forward<Visitor>(vis), std::forward<Variants>(vars)...);
+    return visit_indexed([&](auto ...is) -> std::invoke_result_t<Visitor, decltype(get<0>(std::declval<Variants>()))...> {
+        if constexpr (((is == variant_npos) || ...)) {
+            throw bad_variant_access();
+        } else {
+            return std::forward<Visitor>(vis)(get<is>(std::forward<Variants>(vars))...);
+        }
+    }, std::forward<Variants>(vars)...);
 }
 
 template <typename R, typename Visitor, typename... Variants>
