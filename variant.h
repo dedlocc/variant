@@ -1,9 +1,9 @@
 #pragma once
 
-#include <type_traits>
 #include <array>
-#include <utility>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
 
 template <typename... Types>
 struct variant;
@@ -451,13 +451,12 @@ struct variant_destructor_base<Types...> : variant_base<Types...>
 {
     using variant_base<Types...>::variant_base;
 };
-
 } // detail
 
 template <typename Visitor, typename... Variants>
 constexpr decltype(auto) visit(Visitor &&vis, Variants &&...vars)
 {
-    return visit_indexed([&](auto ...is) -> std::invoke_result_t<Visitor, decltype(get<0>(std::declval<Variants>()))...> {
+    return detail::visit_indexed([&](auto ...is) -> std::invoke_result_t<Visitor, decltype(get<0>(std::declval<Variants>()))...> {
         if constexpr (((is == variant_npos) || ...)) {
             throw bad_variant_access();
         } else {
@@ -491,12 +490,13 @@ public:
     constexpr variant(variant const &other)
     requires detail::copy_constructible<Types...>
     {
-        this->_index = other._index;
-        if (!this->valueless_by_exception()) {
-            visit([this]<typename T>(T &item) {
-                new (&this->_storage) T(item);
-            }, other);
-        }
+        detail::visit_indexed([&](auto i) {
+            if constexpr (i == variant_npos) {
+                this->_index = i;
+            } else {
+                emplace<i>(get<i>(other));
+            }
+        }, other);
     }
 
     constexpr variant(variant &&other) noexcept((std::is_nothrow_move_constructible_v<Types> && ...))
@@ -506,12 +506,13 @@ public:
     constexpr variant(variant &&other) noexcept((std::is_nothrow_move_constructible_v<Types> && ...))
     requires detail::move_constructible<Types...>
     {
-        this->_index = other._index;
-        if (!this->valueless_by_exception()) {
-            visit([this]<typename T>(T &&item) {
-                new (&this->_storage) std::remove_reference_t<T>(std::move(item));
-            }, std::move(other));
-        }
+        detail::visit_indexed([&](auto i) {
+            if constexpr (i == variant_npos) {
+                this->_index = i;
+            } else {
+                emplace<i>(std::move(get<i>(other)));
+            }
+        }, other);
     }
 
     template <typename T, typename Tj = detail::type_by_index<detail::accepted_index_v<T &&, variant>, variant>>
@@ -605,45 +606,24 @@ public:
     constexpr void swap(variant &other)
         noexcept(((std::is_nothrow_move_constructible_v<Types> && std::is_nothrow_swappable_v<Types>) && ...))
     {
-        auto index_left = this->index();
-        auto index_right = other.index();
-
-        auto valueless_left = this->valueless_by_exception();
-        auto valueless_right = other.valueless_by_exception();
-
-        if (valueless_left) {
-            if (!valueless_right) {
-                visit([&]<typename T>(T &item) {
-                    emplace<T>(std::move(item));
-                }, other);
-                other._destroy();
-            }
-        } else if (valueless_right) {
-            visit([&]<typename T>(T &item) {
-                other.template emplace<T>(std::move(item));
-            }, *this);
-            this->_destroy();
-        } else {
-            visit([&]<typename L, typename R>(L &lhs, R &rhs) {
-                if constexpr (std::is_same_v<L, R>) {
-                    using std::swap;
-                    swap(lhs, rhs);
-                } else {
-                    try {
-                        auto tmp = std::move(rhs);
-                        other.template emplace<L>(std::move(lhs));
-                        emplace<R>(std::move(tmp));
-                    } catch (...) {
-                        this->_destroy();
-                        this->_index = variant_npos;
-                        throw;
-                    }
+        detail::visit_indexed([&](auto lhs, auto rhs) {
+            if constexpr (lhs == variant_npos) {
+                if constexpr (rhs != variant_npos) {
+                    emplace<rhs>(std::move(get<rhs>(other)));
                 }
-            }, *this, other);
-        }
-
-        this->_index = index_right;
-        other._index = index_left;
+            } else if constexpr (rhs == variant_npos) {
+                other.template emplace<lhs>(std::move(get<lhs>(*this)));
+            } else if constexpr (lhs == rhs) {
+                using std::swap;
+                swap(get<lhs>(*this), get<rhs>(other));
+            } else {
+                variant tmp = std::move(other);
+                other = std::move(*this);
+                *this = std::move(tmp);
+            }
+            this->_index = rhs;
+            other._index = lhs;
+        }, *this, other);
     }
 
     template <typename T>
