@@ -540,8 +540,27 @@ public:
     constexpr variant &operator=(variant const &other)
     requires detail::copy_assignable<Types...>
     {
-        variant tmp = other;
-        swap(tmp);
+        detail::visit_indexed([&](auto lhs, auto rhs) {
+            if constexpr (rhs == variant_npos) {
+                if constexpr (lhs != variant_npos) {
+                    this->_destroy();
+                }
+                this->_index = variant_npos;
+                return;
+            } else if constexpr (lhs == rhs) {
+                get<lhs>(*this) = get<rhs>(other);
+                return;
+            } else if constexpr (lhs != variant_npos) {
+                if constexpr (
+                    std::is_nothrow_copy_constructible_v<variant_alternative_t<lhs, variant>> ||
+                    !std::is_nothrow_move_constructible_v<variant_alternative_t<lhs, variant>>
+                ) {
+                    emplace<rhs>(get<rhs>(other));
+                    return;
+                }
+            }
+            operator=(variant(other));
+        }, *this, other);
         return *this;
     }
 
